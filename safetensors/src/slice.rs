@@ -344,8 +344,9 @@ pub fn slice_byte_ranges(
     }
     let mut newshape = Vec::with_capacity(n_shape);
 
-    // Minimum span is the span of 1 item;
-    let mut span = dtype.bitsize();
+    // Valid tensor byte spans fit usize; their bit spans can be eight times
+    // larger. Keep bit arithmetic wide until converting to byte offsets.
+    let mut span = dtype.bitsize() as u128;
     let mut indices: Vec<(usize, usize)> = vec![];
     // Everything is row major.
     for (i, &dim) in shape.iter().enumerate().rev() {
@@ -382,32 +383,35 @@ pub fn slice_byte_ranges(
                 if step == 1 && start == 0 && stop == dim {
                     // Full range, nothing sliced yet; just grow the span.
                 } else if step == 1 {
-                    if start * span % 8 != 0 {
+                    if start as u128 * span % 8 != 0 {
                         return Err(InvalidSlice::MisalignedSlice);
                     }
-                    let offset = (start * span) / 8;
-                    if stop * span % 8 != 0 {
+                    let offset = (start as u128 * span / 8) as usize;
+                    if stop as u128 * span % 8 != 0 {
                         return Err(InvalidSlice::MisalignedSlice);
                     }
-                    let small_span = (stop * span) / 8 - offset;
+                    let small_span = (stop as u128 * span / 8) as usize - offset;
                     indices.push((offset, offset + small_span));
                 } else {
                     // Strided innermost dim: each kept element is its own run.
                     for n in (start..stop).step_by(step) {
-                        if n * span % 8 != 0 || (n + 1) * span % 8 != 0 {
+                        if n as u128 * span % 8 != 0 || (n as u128 + 1) * span % 8 != 0 {
                             return Err(InvalidSlice::MisalignedSlice);
                         }
-                        indices.push(((n * span) / 8, ((n + 1) * span) / 8));
+                        indices.push((
+                            (n as u128 * span / 8) as usize,
+                            ((n as u128 + 1) * span / 8) as usize,
+                        ));
                     }
                 }
             } else {
                 let capacity = (stop - start).div_ceil(step) * indices.len();
                 let mut newindices = Vec::with_capacity(capacity);
                 for n in (start..stop).step_by(step) {
-                    if n * span % 8 != 0 {
+                    if n as u128 * span % 8 != 0 {
                         return Err(InvalidSlice::MisalignedSlice);
                     }
-                    let offset = (n * span) / 8;
+                    let offset = (n as u128 * span / 8) as usize;
                     for (old_start, old_stop) in &indices {
                         newindices.push((old_start + offset, old_stop + offset));
                     }
@@ -415,7 +419,7 @@ pub fn slice_byte_ranges(
                 indices = newindices;
             }
         }
-        span *= dim;
+        span *= dim as u128;
     }
     if newshape.contains(&0) {
         indices.clear();
@@ -427,7 +431,7 @@ pub fn slice_byte_ranges(
         if total_bits % 8 != 0 {
             return Err(InvalidSlice::MisalignedSlice);
         }
-        indices.push((0, total_bits / 8));
+        indices.push((0, (total_bits / 8) as usize));
     }
     let newshape = newshape.into_iter().rev().collect();
     Ok((indices, newshape))
@@ -461,7 +465,11 @@ mod tests {
 
         let iterator = SliceIterator::new(
             &attn_0,
-            &[TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded, NonZeroUsize::MIN)],
+            &[TensorIndexer::Narrow(
+                Bound::Unbounded,
+                Bound::Unbounded,
+                NonZeroUsize::MIN,
+            )],
         )
         .unwrap();
         assert_eq!(iterator.remaining_byte_len(), 24);
@@ -487,7 +495,11 @@ mod tests {
 
         let iterator = SliceIterator::new(
             &attn_0,
-            &[TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded, NonZeroUsize::MIN)],
+            &[TensorIndexer::Narrow(
+                Bound::Unbounded,
+                Bound::Unbounded,
+                NonZeroUsize::MIN,
+            )],
         )
         .unwrap();
         assert_eq!(iterator.remaining_byte_len(), 2);
@@ -513,7 +525,11 @@ mod tests {
 
         let iterator = SliceIterator::new(
             &attn_0,
-            &[TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded, NonZeroUsize::MIN)],
+            &[TensorIndexer::Narrow(
+                Bound::Unbounded,
+                Bound::Unbounded,
+                NonZeroUsize::MIN,
+            )],
         )
         .unwrap();
         assert_eq!(iterator.remaining_byte_len(), 1);
@@ -541,7 +557,11 @@ mod tests {
 
         let mut iterator = SliceIterator::new(
             &attn_0,
-            &[TensorIndexer::Narrow(Bound::Unbounded, Bound::Unbounded, NonZeroUsize::MIN)],
+            &[TensorIndexer::Narrow(
+                Bound::Unbounded,
+                Bound::Unbounded,
+                NonZeroUsize::MIN,
+            )],
         )
         .unwrap();
         assert_eq!(iterator.next(), Some(&data[0..24]));
@@ -744,7 +764,11 @@ mod tests {
                 &attn_0,
                 &[
                     TensorIndexer::Select(1),
-                    TensorIndexer::Narrow(Bound::Included(1), Bound::Excluded(4), NonZeroUsize::MIN),
+                    TensorIndexer::Narrow(
+                        Bound::Included(1),
+                        Bound::Excluded(4),
+                        NonZeroUsize::MIN
+                    ),
                 ],
             ),
             Err(InvalidSlice::SliceOutOfRange {
@@ -758,7 +782,11 @@ mod tests {
                 &attn_0,
                 &[
                     TensorIndexer::Select(1),
-                    TensorIndexer::Narrow(Bound::Included(3), Bound::Excluded(2), NonZeroUsize::MIN),
+                    TensorIndexer::Narrow(
+                        Bound::Included(3),
+                        Bound::Excluded(2),
+                        NonZeroUsize::MIN
+                    ),
                 ],
             ),
             Err(InvalidSlice::SliceOutOfRange {

@@ -1,0 +1,27 @@
+name: Wasm32 tensor boundaries
+on:
+  pull_request:
+    paths: ["safetensors/**", ".github/scripts/run-wasi.cjs", ".github/workflows/wasm32.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tensor-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: safetensors
+    env:
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: node ../.github/scripts/run-wasi.cjs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: stable
+          targets: wasm32-wasip1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 26
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - run: cargo test --locked --no-default-features --target wasm32-wasip1 --test large_tensors -- --nocapture
