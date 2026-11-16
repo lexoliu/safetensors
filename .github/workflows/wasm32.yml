@@ -24,4 +24,4 @@ jobs:
         with:
           node-version: 26
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-      - run: cargo test --locked --no-default-features --target wasm32-wasip1 --test large_tensors
+      - run: cargo test --locked --no-default-features --target wasm32-wasip1 --test large_tensors -- --nocapture
