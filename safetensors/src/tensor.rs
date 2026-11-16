@@ -596,6 +596,28 @@ impl Serialize for Metadata {
     }
 }
 
+// Keep the shape product addressable, including the nonzero dimensions of an
+// empty tensor, because consumers derive strides from it. Only the bit count
+// needs a wider intermediate: a byte-addressable tensor can exceed usize bits.
+fn checked_byte_size(shape: &[usize], dtype: Dtype) -> Result<usize, SafeTensorError> {
+    let elements = shape
+        .iter()
+        .filter(|&&dim| dim != 0)
+        .try_fold(1usize, |count, &dim| count.checked_mul(dim))
+        .ok_or(SafeTensorError::ValidationOverflow)?;
+    let bits = (elements as u128)
+        .checked_mul(dtype.bitsize() as u128)
+        .ok_or(SafeTensorError::ValidationOverflow)?;
+    let bytes = usize::try_from(bits / 8).map_err(|_| SafeTensorError::ValidationOverflow)?;
+    if shape.contains(&0) {
+        return Ok(0);
+    }
+    if bits % 8 != 0 {
+        return Err(SafeTensorError::MisalignedSlice);
+    }
+    Ok(bytes)
+}
+
 impl Metadata {
     /// Creates a new metadata structure.
     /// May fail if there is incorrect data in the Tensor Info.
@@ -639,22 +661,7 @@ impl Metadata {
 
             start = e;
 
-            // Bound non-zero dims even when a zero dim makes the tensor empty:
-            // consumers still derive strides from them.
-            let nbits = info
-                .shape
-                .iter()
-                .filter(|&&d| d != 0)
-                .try_fold(info.dtype.bitsize(), |acc, &d| acc.checked_mul(d))
-                .ok_or(SafeTensorError::ValidationOverflow)?;
-            let nbits = if info.shape.contains(&0) { 0 } else { nbits };
-
-            if nbits % 8 != 0 {
-                return Err(SafeTensorError::MisalignedSlice);
-            }
-            let size = nbits
-                .checked_div(8)
-                .ok_or(SafeTensorError::ValidationOverflow)?;
+            let size = checked_byte_size(&info.shape, info.dtype)?;
 
             if e - s != size {
                 return Err(SafeTensorError::TensorInvalidInfo);
@@ -752,15 +759,7 @@ impl<'data> TensorView<'data> {
         shape: Vec<usize>,
         data: &'data [u8],
     ) -> Result<Self, SafeTensorError> {
-        let n_elements: usize = shape.iter().product();
-
-        let nbits = n_elements * dtype.bitsize();
-        if nbits % 8 != 0 {
-            return Err(SafeTensorError::MisalignedSlice);
-        }
-        let size = nbits
-            .checked_div(8)
-            .ok_or(SafeTensorError::ValidationOverflow)?;
+        let size = checked_byte_size(&shape, dtype)?;
 
         if data.len() != size {
             Err(SafeTensorError::InvalidTensorView(dtype, shape, data.len()))

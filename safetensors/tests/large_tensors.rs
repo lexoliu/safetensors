@@ -43,3 +43,42 @@ fn large_tensor_slice_preserves_high_byte_offsets() {
     assert_eq!(ranges, vec![(622_329_848, 622_329_856)]);
     assert_eq!(shape, vec![4]);
 }
+
+#[test]
+fn unaddressable_shapes_and_empty_tensor_strides_stay_rejected() {
+    for shape in [
+        vec![2, usize::MAX],
+        vec![0, 2, usize::MAX],
+        vec![usize::MAX],
+    ] {
+        assert!(matches!(
+            TensorView::new(Dtype::F32, shape.clone(), &[]),
+            Err(SafeTensorError::ValidationOverflow)
+        ));
+        assert!(matches!(
+            Metadata::new(
+                None,
+                vec![(
+                    "invalid".into(),
+                    TensorInfo {
+                        dtype: Dtype::F32,
+                        shape,
+                        data_offsets: (0, 0),
+                    },
+                )],
+            ),
+            Err(SafeTensorError::ValidationOverflow)
+        ));
+    }
+}
+
+#[test]
+fn packed_dtype_alignment_and_empty_shapes_are_preserved() {
+    assert!(TensorView::new(Dtype::F4, vec![2], &[0]).is_ok());
+    assert!(matches!(
+        TensorView::new(Dtype::F4, vec![1], &[]),
+        Err(SafeTensorError::MisalignedSlice)
+    ));
+    assert!(TensorView::new(Dtype::F4, vec![0, 1], &[]).is_ok());
+    assert!(TensorView::new(Dtype::BF16, vec![0, 151_936, 2048], &[]).is_ok());
+}
