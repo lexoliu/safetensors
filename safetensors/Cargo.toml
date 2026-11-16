@@ -33,7 +33,7 @@ tempfile = { version = "3", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
-[dev-dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 criterion = "0.8"
 memmap2 = "0.9"
 proptest = "1.11"
